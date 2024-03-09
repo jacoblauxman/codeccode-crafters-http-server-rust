@@ -1,33 +1,43 @@
+// use anyhow::Context;
 use anyhow::{Context, Result};
-use std::io::{BufRead, BufReader, Write};
+use http_server_starter_rust::http::{HttpRequest, HttpResponse};
+use std::io::BufReader;
 use std::net::{TcpListener, TcpStream};
 
-const RESPONSE_OK: &str = "HTTP/1.1 200 OK\r\n\r\n";
-const RESPONSE_NOTFOUND: &str = "HTTP/1.1 404 NOT FOUND\r\n\r\n";
-
 fn handler(mut stream: TcpStream) -> Result<(), anyhow::Error> {
-    // -- reading --
-    let buf = BufReader::new(&mut stream);
-    let req: Vec<_> = buf
-        .lines()
-        .map(|res| res.unwrap())
-        .take_while(|line| !line.is_empty())
-        .collect();
+    // -- init reader + read request -- //
+    let mut buf = BufReader::new(&stream);
+    let request = HttpRequest::from_reader(&mut buf)?;
 
-    let start_line = req[0].split_whitespace().collect::<Vec<_>>();
-    let (_method, path, _ver) = (start_line[0], start_line[1], start_line[2]);
-
-    // writing
+    let path = request.path.as_str();
     match path {
-        "/" => stream
-            .write_all(RESPONSE_OK.as_bytes())
-            .context("Failed to write OK response")?,
-        _ => stream
-            .write_all(RESPONSE_NOTFOUND.as_bytes())
-            .context("Failed to write NOT FOUND response")?,
+        "/" => {
+            let res = HttpResponse::new();
+            res.write(&mut stream)
+                .context("Failed to write response to GET `/` request")?;
+        }
+        path if path.starts_with("/echo/") => {
+            let res = echo_route(path);
+            res.write(&mut stream)
+                .context("Failed to write response body to GET `/echo/` request")?;
+        }
+        _ => {
+            let mut res = HttpResponse::new();
+            res.set_status_code(404);
+            res.write(&mut stream)
+                .context("Failed to write response for `404` NOT FOUND request")?;
+        }
     }
 
     Ok(())
+}
+
+// -- helper re: routing -- //
+pub fn echo_route(path: &str) -> HttpResponse {
+    let mut res = HttpResponse::new();
+    let body = path.replace("/echo/", "").as_bytes().to_vec();
+    res.set_body(body);
+    res
 }
 
 fn main() -> Result<()> {
