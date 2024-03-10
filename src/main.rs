@@ -10,6 +10,17 @@ fn handler(mut stream: TcpStream) -> Result<(), anyhow::Error> {
     let path = request.path.as_str();
     let mut _res_buffer = Vec::new();
 
+    // access headers -- for `/user-agent`
+    let headers = request.headers;
+    println!("HEADERS: {:?}", headers);
+    let mut user_agent = String::new();
+
+    if let Some(ua) = headers.get("User-Agent") {
+        println!("USER-AGENT: {:?}", user_agent);
+        user_agent = ua.to_string();
+    }
+
+    // 'routing'
     match path {
         "/" => {
             let res = HttpResponse::new();
@@ -21,7 +32,13 @@ fn handler(mut stream: TcpStream) -> Result<(), anyhow::Error> {
             let res = echo_route(path);
             _res_buffer = res
                 .write_to_buffer()
-                .context("Failed to write HTTP response from `/echo/` path to buffer")?;
+                .context("Failed to write HTTP response from `/echo/` endpoint to buffer")?;
+        }
+        "/user-agent" => {
+            let res = user_agent_route(user_agent);
+            _res_buffer = res
+                .write_to_buffer()
+                .context("Failed to write HTTP response from `/user_agent` endpoint to buffer")?;
         }
         _ => {
             let mut res = HttpResponse::new();
@@ -32,6 +49,7 @@ fn handler(mut stream: TcpStream) -> Result<(), anyhow::Error> {
         }
     }
 
+    // write response buffer to stream
     stream
         .write_all(&_res_buffer)
         .context("Failed to write response to TCP stream")?;
@@ -40,13 +58,25 @@ fn handler(mut stream: TcpStream) -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-// -- helper re: routing -- //
+// -- HELPERS re: path / endpoints -- //
 pub fn echo_route(path: &str) -> HttpResponse {
     let mut res = HttpResponse::new();
     let body = path.replace("/echo/", "").as_bytes().to_vec();
     res.set_body(body);
     res
 }
+
+pub fn user_agent_route(user_agent: String) -> HttpResponse {
+    let mut res = HttpResponse::new();
+    res.set_body(user_agent.into_bytes());
+    res
+}
+
+//
+
+//
+
+//
 
 fn main() -> Result<()> {
     let listener =

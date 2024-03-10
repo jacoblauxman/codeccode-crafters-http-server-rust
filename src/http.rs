@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
 
@@ -16,7 +17,7 @@ pub struct HttpRequest {
     pub method: RequestMethod,
     pub path: String,
     pub version: f32,
-    pub headers: Vec<(String, String)>,
+    pub headers: HashMap<String, String>,
 }
 
 impl HttpRequest {
@@ -45,8 +46,8 @@ impl HttpRequest {
 
 pub fn get_headers(
     buf: &mut BufReader<&TcpStream>,
-) -> Result<Vec<(String, String)>, anyhow::Error> {
-    let mut headers = Vec::new();
+) -> Result<HashMap<String, String>, anyhow::Error> {
+    let mut headers = HashMap::new();
     loop {
         let mut header = String::new();
         buf.read_line(&mut header)
@@ -54,26 +55,11 @@ pub fn get_headers(
         if header == "\r\n" {
             break;
         }
-        // let mut header_parts = header.splitn(2, ": ");
-        // let (key, val) = (
-        //     header_parts
-        //         .next()
-        //         .ok_or_else(|| anyhow::anyhow!("Failed to parse req header key"))
-        //         .unwrap()
-        //         .to_string(),
-        //     header_parts
-        //         .next()
-        //         .ok_or_else(|| anyhow::anyhow!("Failed to parse req header value"))
-        //         .unwrap()
-        //         .to_string(),
-        // );
 
         if let Some((key, val)) = header.trim().split_once(": ") {
             let val = val.trim_end_matches("\r\n");
-            headers.push((key.to_string(), val.to_string()))
+            headers.insert(key.to_string(), val.to_string());
         }
-
-        // headers.push((key, val));
     }
 
     Ok(headers)
@@ -141,6 +127,7 @@ impl HttpResponse {
             self.status_code, self.status_text
         )
         .context("Failed to write response status line")?;
+
         // headers
         for (key, value) in &self.headers {
             if key == "Content-Length" {
@@ -149,6 +136,7 @@ impl HttpResponse {
             write!(buffer, "{}: {}\r\n", key, value).context("Failed to write response header")?;
         }
 
+        // check for body content to write
         if self.body.is_some() {
             // content type
             write!(buffer, "Content-Type: text/plain\r\n")
@@ -163,6 +151,7 @@ impl HttpResponse {
             write!(buffer, "\r\n")?;
             buffer.extend_from_slice(self.body.as_ref().unwrap());
         } else {
+            // write EOF / CRLF
             write!(buffer, "Content-Length: 0\r\n\r\n")
                 .context("Failed to write Content-Length for empty body")?;
         }
