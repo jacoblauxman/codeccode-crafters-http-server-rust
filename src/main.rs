@@ -7,29 +7,35 @@ fn handler(mut stream: TcpStream) -> Result<(), anyhow::Error> {
     // -- init reader + read request -- //
     let mut buf = BufReader::new(&stream);
     let request = HttpRequest::from_reader(&mut buf)?;
-
     let path = request.path.as_str();
+    let mut _res_buffer = Vec::new();
+
     match path {
         "/" => {
             let res = HttpResponse::new();
-            res.write(&mut stream)
-                .context("Failed to write response to GET `/` request")?;
-            stream.flush().context("Failed to flush TCP stream")?;
+            _res_buffer = res
+                .write_to_buffer()
+                .context("Failed to write HTTP response from `/` path to buffer")?;
         }
         path if path.starts_with("/echo/") => {
             let res = echo_route(path);
-            res.write(&mut stream)
-                .context("Failed to write response body to GET `/echo/` request")?;
-            stream.flush().context("Failed to flush TCP stream")?;
+            _res_buffer = res
+                .write_to_buffer()
+                .context("Failed to write HTTP response from `/echo/` path to buffer")?;
         }
         _ => {
             let mut res = HttpResponse::new();
             res.set_status_code(404);
-            res.write(&mut stream)
-                .context("Failed to write response for `404` NOT FOUND request")?;
-            stream.flush().context("Failed to flush TCP stream")?;
+            _res_buffer = res
+                .write_to_buffer()
+                .context("Failed to write HTTP response for unknown route endpoint")?;
         }
     }
+
+    stream
+        .write_all(&_res_buffer)
+        .context("Failed to write response to TCP stream")?;
+    stream.flush().context("Failed to flush TPCP stream")?;
 
     Ok(())
 }

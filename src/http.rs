@@ -33,6 +33,7 @@ impl HttpRequest {
             .context("Failed to parse HTTP version from request start line")?;
         let headers = get_headers(buf).context("Failed to parse req headers")?;
 
+        println!("{:?}", req_parts);
         Ok(HttpRequest {
             method,
             path,
@@ -53,21 +54,26 @@ pub fn get_headers(
         if header == "\r\n" {
             break;
         }
-        let mut header_parts = header.splitn(2, ": ");
-        let (key, val) = (
-            header_parts
-                .next()
-                .ok_or_else(|| anyhow::anyhow!("Failed to parse req header key"))
-                .unwrap()
-                .to_string(),
-            header_parts
-                .next()
-                .ok_or_else(|| anyhow::anyhow!("Failed to parse req header value"))
-                .unwrap()
-                .to_string(),
-        );
+        // let mut header_parts = header.splitn(2, ": ");
+        // let (key, val) = (
+        //     header_parts
+        //         .next()
+        //         .ok_or_else(|| anyhow::anyhow!("Failed to parse req header key"))
+        //         .unwrap()
+        //         .to_string(),
+        //     header_parts
+        //         .next()
+        //         .ok_or_else(|| anyhow::anyhow!("Failed to parse req header value"))
+        //         .unwrap()
+        //         .to_string(),
+        // );
 
-        headers.push((key, val));
+        if let Some((key, val)) = header.trim().split_once(": ") {
+            let val = val.trim_end_matches("\r\n");
+            headers.push((key.to_string(), val.to_string()))
+        }
+
+        // headers.push((key, val));
     }
 
     Ok(headers)
@@ -125,10 +131,12 @@ impl HttpResponse {
         self.body.as_mut().unwrap().extend(body);
     }
 
-    pub fn write(&self, writer: &mut impl Write) -> Result<(), anyhow::Error> {
+    pub fn write_to_buffer(&self) -> Result<Vec<u8>, anyhow::Error> {
+        let mut buffer = Vec::new();
+
         // status line
         write!(
-            writer,
+            buffer,
             "HTTP/1.1 {} {}\r\n",
             self.status_code, self.status_text
         )
@@ -138,27 +146,28 @@ impl HttpResponse {
             if key == "Content-Length" {
                 continue;
             }
-            write!(writer, "{}: {}\r\n", key, value).context("Failed to write response header")?;
+            write!(buffer, "{}: {}\r\n", key, value).context("Failed to write response header")?;
         }
 
         if self.body.is_some() {
             // content type
-            write!(writer, "Content-Type: text/plain\r\n")
+            write!(buffer, "Content-Type: text/plain\r\n")
                 .context("Failed to write resonse content-type")?;
             // content length
             write!(
-                writer,
+                buffer,
                 "Content-Length: {}\r\n",
                 self.body.as_ref().unwrap().len()
             )?;
             // body
-            write!(writer, "\r\n")?;
-            writer
-                .write_all(self.body.as_ref().unwrap())
-                .context("Failed to write response body")?;
+            write!(buffer, "\r\n")?;
+            buffer.extend_from_slice(self.body.as_ref().unwrap());
+        } else {
+            write!(buffer, "Content-Length: 0\r\n\r\n")
+                .context("Failed to write Content-Length for empty body")?;
         }
 
-        Ok(())
+        Ok(buffer)
     }
 }
 
