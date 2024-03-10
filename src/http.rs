@@ -2,12 +2,6 @@ use anyhow::{Context, Result};
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
 
-//
-
-// -- -- REQUEST -- -- //
-
-//
-
 #[derive(Debug, Clone)]
 pub enum RequestMethod {
     GET,
@@ -38,12 +32,6 @@ impl HttpRequest {
             .parse::<f32>()
             .context("Failed to parse HTTP version from request start line")?;
         let headers = get_headers(buf).context("Failed to parse req headers")?;
-
-        // let req: Vec<_> = buf
-        //     .lines()
-        //     .map(|line| line.unwrap())
-        //     .take_while(|line| !line.is_empty())
-        //     .collect();
 
         Ok(HttpRequest {
             method,
@@ -95,12 +83,6 @@ pub fn parse_request_method(method: &str) -> Result<RequestMethod, anyhow::Error
         _ => Err(anyhow::anyhow!("Invalid HTTP METHOD in request start line")),
     }
 }
-
-//
-
-// -- -- RESPONSE -- -- //
-
-//
 
 #[derive(Debug, Clone)]
 pub struct HttpResponse {

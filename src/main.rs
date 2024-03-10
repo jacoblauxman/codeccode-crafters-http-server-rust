@@ -1,4 +1,3 @@
-// use anyhow::Context;
 use anyhow::{Context, Result};
 use http_server_starter_rust::http::{HttpRequest, HttpResponse};
 use std::io::{BufReader, Write};
@@ -15,21 +14,23 @@ fn handler(mut stream: TcpStream) -> Result<(), anyhow::Error> {
             let res = HttpResponse::new();
             res.write(&mut stream)
                 .context("Failed to write response to GET `/` request")?;
+            stream.flush().context("Failed to flush TCP stream")?;
         }
         path if path.starts_with("/echo/") => {
             let res = echo_route(path);
             res.write(&mut stream)
                 .context("Failed to write response body to GET `/echo/` request")?;
+            stream.flush().context("Failed to flush TCP stream")?;
         }
         _ => {
             let mut res = HttpResponse::new();
             res.set_status_code(404);
             res.write(&mut stream)
                 .context("Failed to write response for `404` NOT FOUND request")?;
+            stream.flush().context("Failed to flush TCP stream")?;
         }
     }
 
-    stream.flush().context("Failed to flush TCP stream")?;
     Ok(())
 }
 
