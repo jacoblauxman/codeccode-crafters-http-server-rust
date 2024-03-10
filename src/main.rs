@@ -1,7 +1,7 @@
 // use anyhow::Context;
 use anyhow::{Context, Result};
 use http_server_starter_rust::http::{HttpRequest, HttpResponse};
-use std::io::BufReader;
+use std::io::{BufReader, Write};
 use std::net::{TcpListener, TcpStream};
 
 fn handler(mut stream: TcpStream) -> Result<(), anyhow::Error> {
@@ -29,6 +29,7 @@ fn handler(mut stream: TcpStream) -> Result<(), anyhow::Error> {
         }
     }
 
+    stream.flush().context("Failed to flush TCP stream")?;
     Ok(())
 }
 
