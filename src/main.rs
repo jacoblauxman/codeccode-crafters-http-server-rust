@@ -1,22 +1,21 @@
 use anyhow::{Context, Result};
 use http_server_starter_rust::http::{HttpRequest, HttpResponse};
-use std::io::{BufReader, Write};
-use std::net::{TcpListener, TcpStream};
+use tokio::io::{AsyncWriteExt, BufReader};
+use tokio::net::{TcpListener, TcpStream};
 
-fn handler(mut stream: TcpStream) -> Result<(), anyhow::Error> {
+async fn handler(mut stream: TcpStream) -> Result<(), anyhow::Error> {
     // -- init reader + read request -- //
-    let mut buf = BufReader::new(&stream);
-    let request = HttpRequest::from_reader(&mut buf)?;
+    // let mut buf = BufReader::new(&stream);
+    let mut buf = BufReader::new(&mut stream);
+    let request = HttpRequest::from_reader(&mut buf).await?;
     let path = request.path.as_str();
     let mut _res_buffer = Vec::new();
 
-    // access headers -- for `/user-agent`
+    // access headers -- specifically for `/user-agent`
     let headers = request.headers;
-    println!("HEADERS: {:?}", headers);
     let mut user_agent = String::new();
 
     if let Some(ua) = headers.get("User-Agent") {
-        println!("USER-AGENT: {:?}", user_agent);
         user_agent = ua.to_string();
     }
 
@@ -27,18 +26,21 @@ fn handler(mut stream: TcpStream) -> Result<(), anyhow::Error> {
             _res_buffer = res
                 .write_to_buffer()
                 .context("Failed to write HTTP response from `/` path to buffer")?;
+            println!("{:?}", res);
         }
         path if path.starts_with("/echo/") => {
             let res = echo_route(path);
             _res_buffer = res
                 .write_to_buffer()
                 .context("Failed to write HTTP response from `/echo/` endpoint to buffer")?;
+            println!("{:?}", res);
         }
         "/user-agent" => {
             let res = user_agent_route(user_agent);
             _res_buffer = res
                 .write_to_buffer()
                 .context("Failed to write HTTP response from `/user_agent` endpoint to buffer")?;
+            println!("{:?}", res);
         }
         _ => {
             let mut res = HttpResponse::new();
@@ -46,14 +48,19 @@ fn handler(mut stream: TcpStream) -> Result<(), anyhow::Error> {
             _res_buffer = res
                 .write_to_buffer()
                 .context("Failed to write HTTP response for unknown route endpoint")?;
+            println!("{:?}", res);
         }
     }
 
     // write response buffer to stream
     stream
         .write_all(&_res_buffer)
+        .await
         .context("Failed to write response to TCP stream")?;
-    stream.flush().context("Failed to flush TPCP stream")?;
+    stream
+        .flush()
+        .await
+        .context("Failed to flush TPCP stream")?;
 
     Ok(())
 }
@@ -78,22 +85,26 @@ pub fn user_agent_route(user_agent: String) -> HttpResponse {
 
 //
 
-fn main() -> Result<()> {
-    let listener =
-        TcpListener::bind("127.0.0.1:4221").context("Failed to bind TCP Listener to port 4221")?;
-    println!("Listening on port {}", listener.local_addr().unwrap());
+#[tokio::main]
+// async fn main() -> Result<(), anyhow::Error> {
+async fn main() -> anyhow::Result<()> {
+    let listener = TcpListener::bind("127.0.0.1:4221")
+        .await
+        .context("Failed to bind TCP Listener to port 4221")?;
 
-    for stream in listener.incoming() {
-        match stream {
-            Ok(stream) => {
-                println!("accepted new connection");
-                handler(stream)?;
+    loop {
+        let (stream, _addr) = listener
+            .accept()
+            .await
+            .context("Failed to establish stream to TCP listener")?;
+        // println!("TcpStream connected at address: {:?}", addr);
+
+        tokio::spawn(async move {
+            if let Err(err) = handler(stream).await {
+                println!("Error handling connection: {}", err);
             }
-            Err(e) => {
-                println!("error: {}", e);
-            }
-        }
+        });
     }
 
-    Ok(())
+    // Ok(())
 }
