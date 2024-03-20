@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt};
 
 #[derive(Debug, Clone)]
@@ -28,7 +29,7 @@ impl HttpRequest {
             .context("Failed to read HTTP Request start line")?;
 
         let req_parts = req_start_line.split_whitespace().collect::<Vec<_>>();
-        let method = parse_request_method(req_parts[0]) //;
+        let method = parse_request_method(req_parts[0])
             .await
             .context("Failed to parse method from HTTP Request")?;
         let path = req_parts[1].to_string();
@@ -86,7 +87,7 @@ pub async fn parse_request_method(method: &str) -> Result<RequestMethod, anyhow:
 pub struct HttpResponse {
     pub status_code: u16,
     pub status_text: String,
-    pub headers: Vec<(String, String)>,
+    pub headers: HashMap<String, String>,
     pub body: Option<Vec<u8>>,
 }
 
@@ -95,7 +96,7 @@ impl HttpResponse {
         HttpResponse {
             status_code: 200,
             status_text: "OK".to_string(),
-            headers: Vec::new(),
+            headers: HashMap::new(),
             body: None,
         }
     }
@@ -112,7 +113,12 @@ impl HttpResponse {
     }
 
     pub fn set_header(&mut self, key: &str, val: &str) {
-        self.headers.push((key.to_string(), val.to_string()));
+        self.headers.insert(key.to_string(), val.to_string());
+    }
+
+    pub fn set_content_type(&mut self, content_type: ContentType) {
+        self.headers
+            .insert("Content-Type".to_string(), content_type.to_string()); // simplified via ToString impl
     }
 
     pub fn set_body(&mut self, body: Vec<u8>) {
@@ -121,6 +127,25 @@ impl HttpResponse {
 
     pub fn append_body(&mut self, body: Vec<u8>) {
         self.body.as_mut().unwrap().extend(body);
+    }
+
+    pub async fn set_file_content(
+        &mut self,
+        dir_path: &PathBuf,
+        file_path: &str,
+    ) -> Result<(), anyhow::Error> {
+        let path = PathBuf::from(dir_path).join(file_path);
+        let data = tokio::fs::read(path)
+            .await
+            // .context("Failed to read data from given file path")?;
+            .map_err(|_err| {
+                self.set_status_code(404);
+            });
+        if !data.is_err() {
+            self.set_body(data.unwrap());
+            self.set_content_type(ContentType::OctetStream);
+        }
+        Ok(())
     }
 
     // formatting + writing res
@@ -144,7 +169,12 @@ impl HttpResponse {
         // check for body content to write
         if self.body.is_some() {
             // content type
-            res_buffer.extend_from_slice("Content-Type: text/plain\r\n".as_bytes());
+            // res_buffer.extend_from_slice("Content-Type: text/plain\r\n".as_bytes());
+            // res_buffer.extend_from_slice()
+            if self.headers.get("Content-Type").is_none() {
+                res_buffer.extend_from_slice("Content-Type: text/plain\r\n".as_bytes());
+            }
+
             // content length
             res_buffer.extend_from_slice(
                 format!("Content-Length: {}\r\n", self.body.as_ref().unwrap().len()).as_bytes(),
@@ -166,5 +196,20 @@ impl HttpResponse {
 impl Default for HttpResponse {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ContentType {
+    TextPlain,
+    OctetStream,
+}
+
+impl ToString for ContentType {
+    fn to_string(&self) -> String {
+        match self {
+            ContentType::TextPlain => "text/plain".to_string(),
+            ContentType::OctetStream => "application/octet-stream".to_string(),
+        }
     }
 }
