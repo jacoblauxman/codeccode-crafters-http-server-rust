@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use tokio::io::{AsyncBufRead, AsyncBufReadExt};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt};
 
 #[derive(Debug, Clone)]
 pub enum RequestMethod {
@@ -18,6 +18,7 @@ pub struct HttpRequest {
     pub path: String,
     pub version: f32,
     pub headers: HashMap<String, String>,
+    pub body: Option<Vec<u8>>,
 }
 
 impl HttpRequest {
@@ -33,19 +34,46 @@ impl HttpRequest {
             .await
             .context("Failed to parse method from HTTP Request")?;
         let path = req_parts[1].to_string();
+
         let version = req_parts[2][5..]
             .parse::<f32>()
             .context("Failed to parse HTTP version from request start line")?;
+
         let headers = get_headers(buf)
             .await
             .context("Failed to parse req headers")?;
 
-        Ok(HttpRequest {
+        let body = match method {
+            RequestMethod::POST => {
+                let mut body = Vec::new();
+                if let Some(content_length) = headers.get("Content-Length") {
+                    let content_length: usize = content_length
+                        .parse()
+                        .context("Failed to parse Content-Length header")?;
+
+                    body.resize(content_length, 0);
+                    buf.read_exact(&mut body)
+                        .await
+                        .context("Failed to read request body")?;
+                }
+
+                Some(body)
+            }
+
+            RequestMethod::GET => None, // no req. body for `GET`
+
+            _ => todo!(), // still need to implement `DELETE` and `PUT/PATCH` methods
+        };
+
+        let req = HttpRequest {
             method,
             path,
             version,
             headers,
-        })
+            body,
+        };
+
+        Ok(req)
     }
 }
 
@@ -105,6 +133,7 @@ impl HttpResponse {
         self.status_code = code;
         match code {
             200 => self.status_text = "OK".to_string(),
+            201 => self.status_text = "CREATED".to_string(),
             404 => self.status_text = "NOT FOUND".to_string(),
             400 => self.status_text = "BAD REQUEST".to_string(),
             401 => self.status_text = "UNAUTHORIZED".to_string(),
@@ -137,14 +166,16 @@ impl HttpResponse {
         let path = PathBuf::from(dir_path).join(file_path);
         let data = tokio::fs::read(path)
             .await
-            // .context("Failed to read data from given file path")?;
+            // .context("Failed to read data from given file path")?; // instead set response for 404 Not Found
             .map_err(|_err| {
                 self.set_status_code(404);
             });
-        if !data.is_err() {
-            self.set_body(data.unwrap());
+
+        if let Ok(data) = data {
+            self.set_body(data);
             self.set_content_type(ContentType::OctetStream);
         }
+
         Ok(())
     }
 
@@ -169,8 +200,6 @@ impl HttpResponse {
         // check for body content to write
         if self.body.is_some() {
             // content type
-            // res_buffer.extend_from_slice("Content-Type: text/plain\r\n".as_bytes());
-            // res_buffer.extend_from_slice()
             if self.headers.get("Content-Type").is_none() {
                 res_buffer.extend_from_slice("Content-Type: text/plain\r\n".as_bytes());
             }
