@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
-use std::collections::HashMap;
+use flate2::{write::GzEncoder, Compression};
 use std::path::PathBuf;
+use std::{collections::HashMap, io::Write};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt};
 
 #[derive(Debug, Clone)]
@@ -43,8 +44,6 @@ impl HttpRequest {
             .await
             .context("Failed to parse req headers")?;
 
-        // println!("HEADERS RECEIVED: \n{headers:?}");
-
         let body = match method {
             RequestMethod::POST => {
                 let mut body = Vec::new();
@@ -74,8 +73,6 @@ impl HttpRequest {
             headers,
             body,
         };
-
-        println!("Request struct: \n{:?}", req);
 
         Ok(req)
     }
@@ -192,7 +189,6 @@ impl HttpResponse {
             format!("HTTP/1.1 {} {}\r\n", self.status_code, self.status_text).as_bytes(),
         );
 
-        println!("Headers in respone write:\n {:?}", self.headers);
         // headers
         for (key, value) in &self.headers {
             if key == "Content-Length" {
@@ -202,21 +198,36 @@ impl HttpResponse {
             res_buffer.extend_from_slice(format!("{}: {}\r\n", key, value).as_bytes());
         }
 
-        // check for body content to write
+        // check for body content
         if self.body.is_some() {
-            // content type
+            // content type (default)
             if self.headers.get("Content-Type").is_none() {
                 res_buffer.extend_from_slice("Content-Type: text/plain\r\n".as_bytes());
             }
 
-            // content length
-            res_buffer.extend_from_slice(
-                format!("Content-Length: {}\r\n", self.body.as_ref().unwrap().len()).as_bytes(),
-            );
+            match self.headers.get("Content-Encoding") {
+                Some(_) => {
+                    // encoding
+                    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+                    encoder.write_all(self.body.as_ref().unwrap())?;
+                    let enc_buf = encoder.finish()?;
 
-            // body
-            res_buffer.extend_from_slice("\r\n".as_bytes());
-            res_buffer.extend_from_slice(self.body.as_ref().unwrap());
+                    res_buffer.extend_from_slice(
+                        format!("Content-Length: {}\r\n", enc_buf.len()).as_bytes(),
+                    );
+                    res_buffer.extend_from_slice("\r\n".as_bytes());
+                    res_buffer.extend_from_slice(&enc_buf);
+                }
+                None => {
+                    res_buffer.extend_from_slice(
+                        format!("Content-Length: {}\r\n", self.body.as_ref().unwrap().len())
+                            .as_bytes(),
+                    );
+
+                    res_buffer.extend_from_slice("\r\n".as_bytes());
+                    res_buffer.extend_from_slice(self.body.as_ref().unwrap());
+                }
+            }
         } else {
             // no body, write EOF / CRLF
             res_buffer.extend_from_slice("Content-Length: 0\r\n\r\n".as_bytes());

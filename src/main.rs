@@ -178,7 +178,7 @@ async fn main() -> anyhow::Result<()> {
 
         tokio::spawn(async move {
             if let Err(err) = handler(stream, dir_path).await {
-                println!("Error handling connection: {}", err);
+                eprintln!("Error handling connection: {}", err);
             }
         });
     }
