@@ -22,8 +22,10 @@ async fn handler(mut stream: TcpStream, dir_path: PathBuf) -> Result<(), anyhow:
     }
 
     if let Some(enc) = headers.get("Accept-Encoding") {
-        if enc.as_str() == "gzip" {
-            encoding = enc.to_string();
+        let encodings = enc.split(',').map(|e| e.trim()).collect::<Vec<&str>>();
+
+        if encodings.contains(&"gzip") {
+            encoding = "gzip".to_string();
         }
     }
 
