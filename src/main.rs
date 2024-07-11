@@ -15,9 +15,16 @@ async fn handler(mut stream: TcpStream, dir_path: PathBuf) -> Result<(), anyhow:
     // access headers -- specifically for `/user-agent`
     let headers = request.headers;
     let mut user_agent = String::new();
+    let mut encoding = String::new();
 
     if let Some(ua) = headers.get("User-Agent") {
         user_agent = ua.to_string();
+    }
+
+    if let Some(enc) = headers.get("Accept-Encoding") {
+        if enc.as_str() == "gzip" {
+            encoding = enc.to_string();
+        }
     }
 
     let method = request.method;
@@ -32,7 +39,10 @@ async fn handler(mut stream: TcpStream, dir_path: PathBuf) -> Result<(), anyhow:
         }
 
         path if path.starts_with("/echo/") => {
-            let res = echo_route(path);
+            let mut res = echo_route(path);
+            if !encoding.is_empty() {
+                res.headers.insert("Content-Encoding".to_string(), encoding);
+            }
             _res_buffer = res
                 .write_to_buffer()
                 .context("Failed to write HTTP response from `/echo/` endpoint to buffer")?;

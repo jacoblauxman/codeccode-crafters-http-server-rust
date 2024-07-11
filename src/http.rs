@@ -43,6 +43,8 @@ impl HttpRequest {
             .await
             .context("Failed to parse req headers")?;
 
+        // println!("HEADERS RECEIVED: \n{headers:?}");
+
         let body = match method {
             RequestMethod::POST => {
                 let mut body = Vec::new();
@@ -72,6 +74,8 @@ impl HttpRequest {
             headers,
             body,
         };
+
+        println!("Request struct: \n{:?}", req);
 
         Ok(req)
     }
@@ -133,10 +137,10 @@ impl HttpResponse {
         self.status_code = code;
         match code {
             200 => self.status_text = "OK".to_string(),
-            201 => self.status_text = "CREATED".to_string(),
-            404 => self.status_text = "NOT FOUND".to_string(),
-            400 => self.status_text = "BAD REQUEST".to_string(),
-            401 => self.status_text = "UNAUTHORIZED".to_string(),
+            201 => self.status_text = "Created".to_string(),
+            404 => self.status_text = "Not Found".to_string(),
+            400 => self.status_text = "Bad Request".to_string(),
+            401 => self.status_text = "Unauthorized".to_string(),
             _ => self.status_text = "UNKNOWN STATUS".to_string(),
         }
     }
@@ -188,6 +192,7 @@ impl HttpResponse {
             format!("HTTP/1.1 {} {}\r\n", self.status_code, self.status_text).as_bytes(),
         );
 
+        println!("Headers in respone write:\n {:?}", self.headers);
         // headers
         for (key, value) in &self.headers {
             if key == "Content-Length" {
